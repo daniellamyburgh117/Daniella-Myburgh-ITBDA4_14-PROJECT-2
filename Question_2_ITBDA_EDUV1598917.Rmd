@@ -1,0 +1,327 @@
+---
+title: "ITBDA4-14_EDUV1598917_DANIELLA_MYBURGH"
+output: html_notebook
+---
+
+
+
+2.1 LOADING THE DATASET AND PREPROCESSING
+```{r}
+#importing neccessary libraries
+library(tm)
+library(topicmodels)
+library(tidytext)
+library(ggplot2)
+library(wordcloud)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+# Loading in dataset
+files <- list.files(
+  "/Users/dani-myburgh/Downloads/sa_news",
+  pattern = "\\.txt$",
+  full.names = TRUE
+)
+
+df <- data.frame(
+  file_name = basename(files),
+  content = sapply(files, function(x)
+    paste(readLines(x, warn = FALSE), collapse = " ")
+  ),
+  stringsAsFactors = FALSE
+)
+
+View(df)
+```
+
+```{r}
+#cleaning the article text
+clean_text <- function(text) {
+  #converting to lowercase
+  text <- tolower(text)
+  #remove urls
+   text <- gsub("http[s]?://\\S+|www\\.\\S+", " ", text)
+  #remove punctuation
+   text <- gsub("[[:punct:]]", " ", text)
+  #remove extra spaces
+   text <- gsub("\\s+", " ", text)
+  #remove spaces at begining/end
+   text <- trimws(text)
+  return(text)
+}
+#applying cleaned
+df$clean_content <- sapply(
+  df$content,
+  clean_text
+)
+
+View(df)
+```
+
+```{r}
+#creating a corpus
+corpus <- Corpus(
+  VectorSource(df$clean_content)
+)
+```
+
+```{r}
+#removing english stop words
+corpus <- tm_map(
+  corpus,
+  removeWords,
+  stopwords("english")
+)
+
+corpus <- tm_map(
+  corpus,
+  stripWhitespace
+)
+
+```
+
+
+```{r}
+#applying stemming
+corpus <- tm_map(
+  corpus,
+  stemDocument,
+  language = "english"
+)
+```
+Explaination:
+The news articles were loaded into a data frame containing the variables file_name and content. Before topic modelling was performed, the text was denoised by converting all words to lowercase and removing URLs, numbers, punctuation, common English stop words and unnecessary whitespace. Stemming was also applied to reduce related word forms to a common base. These preprocessing steps reduce noise and dimensionality in the text data and improve the quality of subsequent text analysis. The supplied textbook explains that text preprocessing is an important stage in text analytics because raw text must be transformed into a more structured representation before analytical techniques can be applied (EMC Education Services, 2015).
+
+
+2.2 Running Latent Dirichlet allocation
+
+```{r}
+#turning the corpus into a document term matrix
+dtm <- DocumentTermMatrix(
+  corpus,
+  control = list(
+    wordLengths = c(3, Inf)
+  )
+)
+
+dtm
+
+```
+
+```{r}
+#removing very sparse terms
+dtm <- removeSparseTerms(
+  dtm,
+  0.99
+)
+```
+
+```{r}
+#checking for any empty rows
+
+row_totals <- apply(
+  as.matrix(dtm),
+  1,
+  sum
+)
+row_totals
+
+```
+
+
+```{r}
+#removing row if 0
+dtm <- dtm[row_totals > 0, ]
+```
+
+
+```{r}
+#running the LDA model
+set.seed(123)
+
+lda_model <- LDA(
+  dtm,
+  k = 4,
+  method = "Gibbs",
+  control = list(
+    seed = 123,
+    burnin = 1000,
+    iter = 2000,
+    thin = 100
+  )
+)
+
+
+```
+
+```{r}
+#displaying top 10 words per topic
+
+top_words <- terms(
+  lda_model,
+  10
+)
+
+top_words
+```
+
+
+```{r}
+for(i in 1:4) {
+  
+  cat("\nTopic", i, "\n")
+  
+  print(
+    top_words[, i]
+  )
+}
+```
+
+```{r}
+#extract topic word probabilities
+topic_terms <- tidy(
+  lda_model,
+  matrix = "beta"
+)
+
+head(topic_terms)
+
+```
+
+```{r}
+#top 10 terms per topic
+top_topic_terms <- topic_terms %>%
+  group_by(topic) %>%
+  slice_max(
+    beta,
+    n = 10
+  ) %>%
+  ungroup()
+
+top_topic_terms
+
+```
+
+```{r}
+View(top_topic_terms)
+```
+
+
+```{r}
+#calculating how much of each topic appears in every article
+document_topics <- tidy(
+  lda_model,
+  matrix = "gamma"
+)
+
+head(document_topics)
+
+```
+
+```{r}
+#adding the filenames 
+document_topics$file_name <- df$file_name[
+  as.numeric(document_topics$document)
+]
+
+```
+
+```{r}
+View(document_topics)
+
+```
+
+
+```{r}
+#finding the dominant topic per article
+dominant_topics <- document_topics %>%
+  group_by(document) %>%
+  slice_max(
+    gamma,
+    n = 1
+  ) %>%
+  ungroup()
+
+dominant_topics
+```
+
+Explanation:
+Latent Dirichlet Allocation was applied to identify latent topics within the collection of news articles. LDA is a probabilistic topic-modelling method in which each document is represented as a mixture of topics, while each topic is represented as a probability distribution over words (Blei, Ng and Jordan, 2003). Four topics were selected for this analysis because the dataset contains a relatively small number of articles. The ten highest-probability words in each topic were extracted using the topic-word probability, beta. The document-topic probability, gamma, was also calculated to show the proportion of each topic contained within every article.
+
+2.3 Visualisations
+
+```{r}
+#top words per topic bar chart
+
+top_topic_terms <- topic_terms %>%
+  group_by(topic) %>%
+  slice_max(
+    beta,
+    n = 10
+  ) %>%
+  ungroup()
+
+
+```
+
+
+```{r}
+ggplot(
+  top_topic_terms,
+  aes(
+    x = reorder(term, beta),
+    y = beta
+  )
+) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(
+    ~topic,
+    scales = "free"
+  ) +
+  labs(
+    title = "Top 10 Words in Each LDA Topic",
+    x = "Word",
+    y = "Probability (Beta)"
+  ) +
+  theme_minimal()
+
+
+```
+
+```{r}
+#word clouds
+for(i in 1:4) {
+  
+  topic_data <- topic_terms %>%
+    filter(topic == i) %>%
+    arrange(desc(beta)) %>%
+    slice_head(n = 30)
+  
+  wordcloud(
+    words = topic_data$term,
+    freq = topic_data$beta,
+    max.words = 30,
+    random.order = FALSE
+  )
+  
+  title(
+    paste("Topic", i)
+  )
+}
+
+
+
+```
+
+
+Explanation:
+Two visualisation techniques were used to interpret the LDA results. The first was a horizontal bar chart showing the ten highest-weighted words in each topic. The length of each bar represents the beta probability of the word within the topic, making it possible to compare the relative importance of terms. The second visualisation was a word cloud, where terms with greater topic weights are displayed more prominently. The supplied textbook discusses word clouds as a useful method for visually identifying important terms in text data (EMC Education Services, 2015). A stacked bar chart of document-topic probabilities was also produced to show how the identified topics are distributed across the individual news articles.
+
+
+
+References to use
+Blei, D.M., Ng, A.Y. and Jordan, M.I. (2003) ‘Latent Dirichlet Allocation’, Journal of Machine Learning Research, 3, pp. 993–1022.
+EMC Education Services (2015) Data Science and Big Data Analytics: Discovering, Analyzing, Visualizing and Presenting Data. Indianapolis: John Wiley & Sons.

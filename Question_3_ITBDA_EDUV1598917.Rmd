@@ -1,0 +1,413 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+Question 3.1
+
+loading the packages
+```{r}
+library(rvest)
+library(dplyr)
+library(stringr)
+library(tidytext)
+library(ggplot2)
+library(wordcloud)
+```
+
+
+```{r}
+# Website URL
+url <- "https://quotes.toscrape.com/"
+
+# Read webpage
+page <- read_html(url)
+
+page
+```
+
+```{r}
+#extracting the quote text:
+quotes <- page %>%
+  html_elements(".text") %>%
+  html_text2()
+
+quotes
+
+```
+
+```{r}
+#extracting the authors
+authors <- page %>%
+  html_elements(".author") %>%
+  html_text2()
+
+authors
+
+```
+
+```{r}
+#extracting the tags
+quote_blocks <- page %>%
+  html_elements(".quote")
+
+tags <- sapply(
+  quote_blocks,
+  function(x) {
+    
+    x %>%
+      html_elements(".tag") %>%
+      html_text2() %>%
+      paste(collapse = ", ")
+    
+  }
+)
+
+tags
+```
+
+
+```{r}
+#creating the data frame
+df <- data.frame(
+  quote = quotes,
+  author = authors,
+  tags = tags,
+  stringsAsFactors = FALSE
+)
+
+View(df)
+
+```
+
+
+```{r}
+#scraping 
+# Empty data frame to store scraped information
+quotes_df <- data.frame()
+
+# Scrape pages 1 to 10
+for(i in 1:10) {
+  
+  url <- paste0(
+    "https://quotes.toscrape.com/page/",
+    i,
+    "/"
+  )
+  
+  page <- read_html(url)
+  
+  quote_blocks <- page %>%
+    html_elements(".quote")
+  
+  
+  quote_text <- quote_blocks %>%
+    html_element(".text") %>%
+    html_text2()
+  
+  
+  author <- quote_blocks %>%
+    html_element(".author") %>%
+    html_text2()
+  
+  
+  tags <- sapply(
+    quote_blocks,
+    function(x) {
+      
+      x %>%
+        html_elements(".tag") %>%
+        html_text2() %>%
+        paste(collapse = ", ")
+      
+    }
+  )
+  
+  
+  temp_df <- data.frame(
+    quote = quote_text,
+    author = author,
+    tags = tags,
+    stringsAsFactors = FALSE
+  )
+  
+  
+  quotes_df <- bind_rows(
+    quotes_df,
+    temp_df
+  )
+}
+
+View(quotes_df)
+```
+
+
+```{r}
+#checking number of observations
+nrow(quotes_df)
+```
+
+
+```{r}
+str(quotes_df)
+```
+
+Explaination: 
+The selected website was Quotes to Scrape. This website was chosen because it is a publicly accessible web-scraping practice environment and provides clearly structured HTML content containing quotes, authors and tags. The rvest package in R was used to retrieve and parse the HTML pages. The CSS selectors .text, .author and .tag were used to extract the relevant content. The pages were iterated through using a for loop, after which the extracted information was combined into an R data frame containing the variables quote, author and tags. This provided a structured textual dataset suitable for subsequent natural language processing.
+
+
+Question 3.2- textual preprocessing
+
+```{r}
+#preserving the original text and creating a cleaned version
+quotes_df$clean_quote <- quotes_df$quote
+```
+
+
+```{r}
+#convert to lowercase
+quotes_df$clean_quote <- tolower(
+  quotes_df$clean_quote
+)
+
+```
+
+
+```{r}
+#removing punctuation
+quotes_df$clean_quote <- str_replace_all(
+  quotes_df$clean_quote,
+  "[[:punct:]]",
+  " "
+)
+
+```
+
+
+```{r}
+#removing numbers
+quotes_df$clean_quote <- str_replace_all(
+  quotes_df$clean_quote,
+  "[0-9]+",
+  " "
+)
+
+```
+
+
+```{r}
+#removing extra whitespace
+quotes_df$clean_quote <- str_squish(
+  quotes_df$clean_quote
+)
+
+```
+
+
+```{r}
+#tokenise
+words <- quotes_df %>%
+  select(
+    author,
+    clean_quote
+  ) %>%
+  unnest_tokens(
+    word,
+    clean_quote
+  )
+
+```
+
+
+
+```{r}
+#removing stop words
+data("stop_words")
+
+clean_words <- words %>%
+  anti_join(
+    stop_words,
+    by = "word"
+  )
+```
+
+
+```{r}
+#inspecting
+View(clean_words)
+```
+
+
+```{r}
+#removing short words
+clean_words <- clean_words %>%
+  filter(
+    nchar(word) > 2
+  )
+
+```
+
+Explaination: 
+Text preprocessing was performed before summarisation to reduce noise within the corpus. All quote text was converted to lowercase to prevent words such as “Life” and “life” from being treated as different features. Punctuation, numbers and unnecessary whitespace were removed, after which the text was tokenised into individual words. Common English stop words were also removed because high-frequency terms such as the, and and of generally contribute little to the identification of key themes. The resulting cleaned token set was then used for frequency-based and TF-IDF-based summarisation.
+
+Question 3.3- text summarisation
+
+```{r}
+#word frequency summarisation
+word_frequency <- clean_words %>%
+  count(
+    word,
+    sort = TRUE
+  )
+
+head(
+  word_frequency,
+  20
+)
+
+
+```
+
+explaination: 
+The first summarisation approach used word frequency. Frequency-based summarisation identifies the terms that occur most often in the corpus and therefore provides a simple representation of dominant concepts. After stop-word removal, the remaining terms were counted and ranked from most frequent to least frequent. High-frequency words provide an indication of recurring concepts within the collection of quotation
+
+
+Visualisation- top word bar chart
+```{r}
+#top 15 terms
+top_words <- word_frequency %>%
+  slice_max(
+    n,
+    n = 15
+  )
+
+```
+
+
+```{r}
+#creating the plot
+ggplot(
+  top_words,
+  aes(
+    x = reorder(word, n),
+    y = n
+  )
+) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Most Frequent Words in the Quotes Corpus",
+    x = "Word",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+
+```
+
+TF-IDF summarisation
+```{r}
+#counting each word per author
+author_words <- clean_words %>%
+  count(
+    author,
+    word,
+    sort = TRUE
+  )
+
+```
+
+
+```{r}
+#calculating TF-IDF
+author_tfidf <- author_words %>%
+  bind_tf_idf(
+    term = word,
+    document = author,
+    n = n
+  )
+
+```
+
+
+
+```{R}
+View(author_tfidf)
+
+```
+
+
+```{R}
+#finding the strongest terms
+top_tfidf <- author_tfidf %>%
+  group_by(author) %>%
+  slice_max(
+    tf_idf,
+    n = 5,
+    with_ties = FALSE
+  ) %>%
+  ungroup()
+```
+
+
+
+```{r}
+View(top_tfidf)
+
+```
+
+
+Explanation:
+
+The second summarisation technique used Term Frequency–Inverse Document Frequency (TF-IDF). Whereas raw frequency identifies words that are common across the whole corpus, TF-IDF gives greater weight to terms that are frequent within one document or author but comparatively uncommon elsewhere. This allows distinctive words associated with individual authors to be identified and provides a more discriminating summary of the text.
+
+TF-IDF BAR CHART
+```{r}
+top_tfidf_plot <- top_tfidf %>%
+  filter(
+    author %in% c(
+      "Albert Einstein",
+      "J.K. Rowling",
+      "Jane Austen",
+      "Marilyn Monroe"
+    )
+  )
+
+```
+
+
+```{r}
+ggplot(
+  top_tfidf_plot,
+  aes(
+    x = reorder_within(
+      word,
+      tf_idf,
+      author
+    ),
+    y = tf_idf
+  )
+) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(
+    ~author,
+    scales = "free"
+  ) +
+  scale_x_reordered() +
+  labs(
+    title = "Distinctive Words by Author Using TF-IDF",
+    x = "Word",
+    y = "TF-IDF Score"
+  ) +
+  theme_minimal()
+```
+
+Explanation:
+The textual analysis showed that the corpus contains several recurrent concepts relating to human behaviour, life, relationships, personal values and experience. Frequency analysis identified the most commonly occurring terms across all quotations, while TF-IDF revealed terms that were more distinctive to particular authors. The frequency bar chart provided a direct comparison of dominant words, while the TF-IDF visualisation highlighted differences between authors. Together, these techniques demonstrate that different summarisation approaches provide complementary interpretations of the same textual dataset.
+
+
+
+
+

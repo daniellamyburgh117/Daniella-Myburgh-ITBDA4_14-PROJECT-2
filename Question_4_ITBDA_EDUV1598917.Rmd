@@ -1,0 +1,258 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Question 4.1
+
+```{r}
+#Loading the required R packages
+library(rvest)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(readr)
+
+```
+
+```{r}
+# Website URL
+url <- "https://books.toscrape.com/"
+
+# Read webpage
+page <- read_html(url)
+
+```
+
+
+```{r}
+#extracting each book block
+books <- page %>%
+  html_elements("article.product_pod")
+
+
+```
+
+```{r}
+#extracting titles
+title <- books %>%
+  html_element("h3 a") %>%
+  html_attr("title")
+
+```
+
+
+```{r}
+#extracting prices
+price_raw <- books %>%
+  html_element(".price_color") %>%
+  html_text2()
+
+```
+
+```{r}
+#extracting stock availability
+availability <- books %>%
+  html_element(".availability") %>%
+  html_text2()
+
+
+```
+
+```{r}
+#extracting ratings
+rating_raw <- books %>%
+  html_element(".star-rating") %>%
+  html_attr("class")
+```
+
+```{r}
+#applying regex to extract usable values
+price <- str_extract(
+  price_raw,
+  "[0-9]+\\.[0-9]+"
+)
+
+price <- as.numeric(price)
+
+
+```
+
+
+```{r}
+#extracting the textual rating
+rating <- str_extract(
+  rating_raw,
+  "One|Two|Three|Four|Five"
+)
+
+```
+
+
+```{r}
+
+rating_number <- case_when(
+  rating == "One"   ~ 1,
+  rating == "Two"   ~ 2,
+  rating == "Three" ~ 3,
+  rating == "Four"  ~ 4,
+  rating == "Five"  ~ 5,
+  TRUE ~ NA_real_
+)
+
+```
+
+
+```{r}
+#cleaning the stock text
+availability <- str_squish(
+  availability
+)
+
+
+```
+
+```{r}
+#creating the data frame 
+books_df <- data.frame(
+  title = title,
+  price = price,
+  rating = rating,
+  rating_number = rating_number,
+  availability = availability,
+  stringsAsFactors = FALSE
+)
+
+View(books_df)
+
+```
+
+Explanation:
+The selected use case was book catalogue analysis using the Books to Scrape website. This website was selected because it is a public web-scraping sandbox and provides structured product information including title, price, rating and stock status. The rvest package was used to extract the HTML content, while regular expressions were applied using stringr to isolate numeric price values and rating categories. The scraped data was converted into an R data frame containing both textual attributes and numerical attributes suitable for later ETL processing.
+
+
+Question 4.2:
+
+```{r}
+#inspecting the data
+summary(books_df)
+
+```
+
+
+```{r}
+#checking for missing values
+colSums(is.na(books_df))
+
+```
+
+```{r}
+#checking for blank strings
+colSums(
+  books_df == ""
+)
+
+```
+
+```{r}
+#cleaning the title
+books_df$title <- str_squish(
+  books_df$title
+)
+
+```
+
+
+
+```{r}
+#standardise availability
+books_df$availability <- str_to_lower(
+  books_df$availability
+)
+
+books_df$availability <- case_when(
+  str_detect(books_df$availability, "in stock") ~ "In Stock",
+  TRUE ~ "Unknown"
+)
+
+
+```
+
+
+
+```{r}
+#Imputing missing numerical values
+
+median_price <- median(
+  books_df$price,
+  na.rm = TRUE
+)
+
+books_df$price[
+  is.na(books_df$price)
+] <- median_price
+
+
+```
+
+
+
+```{r}
+#applying median rating for missing ratings
+median_rating <- median(
+  books_df$rating_number,
+  na.rm = TRUE
+)
+
+books_df$rating_number[
+  is.na(books_df$rating_number)
+] <- median_rating
+
+
+
+```
+
+
+```{r}
+#imputing missing categorical values
+books_df$rating[
+  is.na(books_df$rating)
+] <- "Unknown"
+
+```
+
+```{r}
+books_df$availability[
+  is.na(books_df$availability) |
+  books_df$availability == ""
+] <- "Unknown"
+
+
+```
+
+```{r}
+#removing duplicates
+books_clean <- books_df %>%
+  distinct()
+
+```
+
+```{r}
+summary(books_clean)
+
+colSums(is.na(books_clean))
+
+```
+
+```{r}
+#exporting to csv
+write.csv(
+  books_clean,
+  "/Users/dani-myburgh/Downloads/books_clean.csv",
+  row.names = FALSE
+)
+
+```
+
+Explanation:
+The scraped dataset was cleaned by removing excessive white space, standardising categorical values and checking for missing values and duplicates. Numerical missing values were imputed using the median because the median is less sensitive to extreme values than the mean. Missing categorical values were replaced with Unknown. Duplicate rows were removed before exporting the final cleaned dataset to books_clean.csv.
